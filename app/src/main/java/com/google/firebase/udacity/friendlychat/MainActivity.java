@@ -18,6 +18,8 @@ package com.google.firebase.udacity.friendlychat;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+
+import com.google.android.gms.tasks.OnFailureListener;
 import com.google.android.gms.tasks.OnSuccessListener;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -25,6 +27,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import android.text.Editable;
 import android.text.InputFilter;
 import android.text.TextWatcher;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
@@ -49,6 +52,8 @@ import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.remoteconfig.FirebaseRemoteConfig;
+import com.google.firebase.remoteconfig.FirebaseRemoteConfigSettings;
 import com.google.firebase.storage.FirebaseStorage;
 import com.google.firebase.storage.StorageMetadata;
 import com.google.firebase.storage.StorageReference;
@@ -58,6 +63,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import javax.xml.transform.Result;
 
@@ -67,6 +73,7 @@ public class MainActivity extends AppCompatActivity {
 
     public static final String ANONYMOUS = "anonymous";
     public static final int DEFAULT_MSG_LENGTH_LIMIT = 1000;
+    public  static final String friendly_msg_lenght_Key="friendly_msg_lenght";
     public  static final int RC_SIGN_IN=2;//startActivityForResult for the Sign_in
     private ListView mMessageListView;
     private MessageAdapter mMessageAdapter;
@@ -82,7 +89,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int RC_PHOTO_PICKER=1; //This is for startActivityForResult for the Photo
     private FirebaseStorage mFirebaseStorage;
     private StorageReference mChatPhoto;//Storage reference object
-
+    private FirebaseRemoteConfig  mFireremote ;
 
     private String mUsername;
 
@@ -97,6 +104,7 @@ public class MainActivity extends AppCompatActivity {
         mfbase=FirebaseDatabase.getInstance();//Intialize Firebase component
         mFirebaseAuth = FirebaseAuth.getInstance();
         mFirebaseStorage=FirebaseStorage.getInstance();
+        mFireremote=FirebaseRemoteConfig.getInstance();
 
         mdr=mfbase.getReference().child("messages");
         mChatPhoto=mFirebaseStorage.getReference().child("chat_photos");
@@ -221,6 +229,17 @@ mMessageAdapter.add(mMessage);
                 }
             }
         };
+        //This is for the remote config operations setup
+        FirebaseRemoteConfigSettings configSettings=new  FirebaseRemoteConfigSettings.Builder().setDeveloperModeEnabled(BuildConfig.DEBUG).build();// BuildConfig.DEBUG is a boolean created at build time
+        mFireremote.setConfigSettingsAsync(configSettings);
+
+        //We define the parameters for the remote config this will be done using a map object
+        Map<String,Object> defaltConfigMap=new HashMap<>();
+        defaltConfigMap.put(friendly_msg_lenght_Key,DEFAULT_MSG_LENGTH_LIMIT);
+        mFireremote.setDefaults(defaltConfigMap);
+        //This method( fetchConfig()) will try to fetch value through the servers to see if any of the config value change during you firebase project
+        fetchConfig();
+
 
     }
 /*This is for your onActivityResult modification Contains the result coming from your sign_in and also
@@ -345,6 +364,39 @@ private void detachDataReadListener() {
     protected void onResume() {
         super.onResume();
       mFirebaseAuth.addAuthStateListener(mAuthStateListener);
+    }
+   public  void  fetchConfig(){
+        //Specify the cache expiration time
+       long  cacheExpiration=3600;
+       //set the cache time to 0 when developer mode is enabled
+       if (mFireremote.getInfo().getConfigSettings().isDeveloperModeEnabled()){
+           //This allows use when we are debugging it to get the latest values from firebase if there are any changes
+           cacheExpiration=0;
+       }
+       mFireremote.fetch(cacheExpiration).addOnSuccessListener(new OnSuccessListener<Void>() {
+           @Override
+           public void onSuccess(Void aVoid) {
+               mFireremote.activateFetched();//active your parameters
+               // appropriately update the edit text length
+               applyRetrievedLenghtLimit();
+           }
+       }) .addOnFailureListener(new OnFailureListener() {
+           @Override
+           public void onFailure(@NonNull Exception e) {
+               //onFailure will occur may be when you are offline
+               Log.w(TAG,"Error",e);
+               // When this is call it will update it values from the cache
+               applyRetrievedLenghtLimit();
+
+           }
+       });
+    }
+
+    private void applyRetrievedLenghtLimit() {
+        /* this will contain what was received from the servers */
+        Long frendly_msg_length=mFireremote.getLong(friendly_msg_lenght_Key);
+        mMessageEditText.setFilters(new InputFilter[]{new InputFilter.LengthFilter(frendly_msg_length.intValue())});
+        Log.d(TAG,friendly_msg_lenght_Key+"="+frendly_msg_length);
     }
 
 
